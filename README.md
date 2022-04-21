@@ -13,6 +13,11 @@ Haskell minesweeper project for Programming paradigms
 
 At the start of the game you need to provide the path to the map file. The game is won if all non-bomb tiles are revealed. 
 
+ * ■ - indicates a hidden cell
+ * X - indicates a flagged cell
+ * M - indicates a mine
+ * 0-8 - amount of mines around the cell
+
 ### How to run
 Open haskell interpreter and run:
 ```
