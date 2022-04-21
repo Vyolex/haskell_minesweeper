@@ -3,14 +3,14 @@
 -- https://www.reddit.com/r/haskell/comments/8jui5k/how_to_replace_an_element_at_an_index_in_a_list/
 
 
--- Imports
+--- Imports
 import System.IO  
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.IORef
 
 
--- Custom Types
+--- Custom Types
 data Mapstate = Revealed | Hidden | Flagged
 instance Eq Mapstate where
   Revealed == Revealed = True
@@ -25,11 +25,13 @@ instance Eq Gamestate where
   Lost == Lost = True
   _ == _ = False
 
--- Global variables
+
+--- Global variables
 winmsg = "You won, splendid job."
 losemsg = "You lost, better luck next time :c"
 
 
+--- Main functions
 -- Starting function
 main :: IO ()
 main = do
@@ -45,6 +47,7 @@ main = do
   let basemap = map words . lines $ contents
   let mask = maskMap basemap
 
+  -- Check if map is valid
   if isMapValid basemap then do
     let mine_count = countMines basemap
 
@@ -70,7 +73,7 @@ inputLoop gamemap (mask, am_flags, gamestate) = do
   putStr "> Please input action: " 
   mInput <- getLine
 
-
+  -- Split input in command and args 
   let com = head . words $ mInput
   let coords = tail . words $ mInput
   
@@ -87,50 +90,14 @@ inputLoop gamemap (mask, am_flags, gamestate) = do
     otherwise -> do putStrLn "Please enter a valid action" >> inputLoop gamemap (mask, am_flags, gamestate)
 
 
---- Main game logic
-isBomb :: String -> Bool
-isBomb "M" = True
-isBomb _ = False
-
--- Check if map is valid
-isTileBomb :: [[String]] -> (Int, Int) -> Bool
-isTileBomb gamemap (x,y)
-  | y < 0 || x < 0 || y >= length gamemap || x >= length (gamemap !! 0) = False
-  | otherwise = isBomb ((gamemap !! y) !! x)
-
-isTileValid :: [[String]] -> (Int, Int) -> Bool
-isTileValid gamemap (x,y)
-  | isBomb ((gamemap !! y) !! x) = True
-  | otherwise = do
-    let amine = readInt ((gamemap !! y) !! x)
-    let amine1 = amine - (fromEnum (isTileBomb gamemap (x-1, y-1)))
-    let amine2 = amine1 - (fromEnum (isTileBomb gamemap (x-1, y)))
-    let amine3 = amine2 - (fromEnum (isTileBomb gamemap (x-1, y+1)))
-    let amine4 = amine3 - (fromEnum (isTileBomb gamemap (x, y-1)))
-    let amine5 = amine4 - (fromEnum (isTileBomb gamemap (x, y+1)))
-    let amine6 = amine5 - (fromEnum (isTileBomb gamemap (x+1, y-1)))
-    let amine7 = amine6 - (fromEnum (isTileBomb gamemap (x+1, y)))
-    let amine8 = amine7 - (fromEnum (isTileBomb gamemap (x+1, y+1)))
-
-    amine8 == 0
-
-isMapValid :: [[String]] -> Bool
-isMapValid gamemap = _x_isMapValid gamemap (gamemap, 0)
-
-_x_isMapValid :: [[String]] -> ([[String]], Int) -> Bool
-_x_isMapValid [x] (gamemap, i) = (_y_isMapValid x (gamemap, i, 0))
-_x_isMapValid (x:xs) (gamemap, i) = (_y_isMapValid x (gamemap, i, 0)) && (_x_isMapValid xs (gamemap, i+1))
-
-_y_isMapValid :: [String] -> ([[String]], Int, Int) -> Bool
-_y_isMapValid [x] (gamemap, i, j) = (isTileValid gamemap (i, j))
-_y_isMapValid (x:xs) (gamemap, i, j) = (isTileValid gamemap (i, j)) && (_y_isMapValid xs (gamemap, i, j+1))
-
--- Reveals square
+--- User actions
+-- Reveals cell and updates gamestate
 reveal :: [[String]] -> ([[Mapstate]], Int, Gamestate) -> (Int, Int) -> ([[Mapstate]], Int, Gamestate)
 reveal gamemap (mask, am_flags, gamestate) (x,y)
   | y < 0 || x < 0 || y >= length gamemap || x >= length (gamemap !! 0) = (mask, am_flags, gamestate)
   | ((mask !! y) !! x) /= Hidden = (mask, am_flags, gamestate)
-  | isBomb ((gamemap !! y) !! x) = (replace mask (y,x,Revealed), am_flags, Lost)
+  | isMine
+ ((gamemap !! y) !! x) = (replace mask (y,x,Revealed), am_flags, Lost)
   | ((gamemap !! y) !! x) /= "0" = do
     let new_mask = replace mask (y,x,Revealed)
     if isMapComplete gamemap new_mask then do 
@@ -154,7 +121,7 @@ reveal gamemap (mask, am_flags, gamestate) (x,y)
       else do
         (new_mask, am_flags, gamestate)
 
--- Flags square
+-- Flags cell
 flag :: [[String]] -> ([[Mapstate]], Int, Gamestate) -> (Int, Int) -> ([[Mapstate]], Int, Gamestate)
 flag gamemap (mask, am_flags, gamestate) (x,y)
   | y < 0 || x < 0 || y >= length gamemap || x >= length (gamemap !! 0) = (mask, am_flags, gamestate)
@@ -163,7 +130,7 @@ flag gamemap (mask, am_flags, gamestate) (x,y)
   | otherwise = do
     (replace mask (y,x,Flagged), am_flags-1, gamestate)
 
--- Unflags square
+-- Unflags cell
 unflag :: [[String]] -> ([[Mapstate]], Int, Gamestate) -> (Int, Int) -> ([[Mapstate]], Int, Gamestate)
 unflag gamemap (mask, am_flags, gamestate) (x,y)
   | y < 0 || x < 0 || y >= length gamemap || x >= length (gamemap !! 0) = (mask, am_flags, gamestate)
@@ -172,12 +139,43 @@ unflag gamemap (mask, am_flags, gamestate) (x,y)
     (replace mask (y,x,Hidden), am_flags+1, gamestate)
 
 
-isTileComplete :: [[String]] -> [[Mapstate]] -> (Int,Int) -> Bool
-isTileComplete gamemap mask (x,y)
-  | y < 0 || x < 0 || y >= length gamemap || x >= length (gamemap !! 0) = True
-  | isBomb ((gamemap !! y) !! x) = True
-  | otherwise = ((mask !! y) !! x) == Revealed
+--- Main game logic
+-- Check if map is valid
+isMapValid :: [[String]] -> Bool
+isMapValid gamemap = _x_isMapValid gamemap (gamemap, 0)
 
+_x_isMapValid :: [[String]] -> ([[String]], Int) -> Bool
+_x_isMapValid [x] (gamemap, i) = (_y_isMapValid x (gamemap, i, 0))
+_x_isMapValid (x:xs) (gamemap, i) = (_y_isMapValid x (gamemap, i, 0)) && (_x_isMapValid xs (gamemap, i+1))
+
+_y_isMapValid :: [String] -> ([[String]], Int, Int) -> Bool
+_y_isMapValid [x] (gamemap, i, j) = (isTileValid gamemap (i, j))
+_y_isMapValid (x:xs) (gamemap, i, j) = (isTileValid gamemap (i, j)) && (_y_isMapValid xs (gamemap, i, j+1))
+
+isTileValid :: [[String]] -> (Int, Int) -> Bool
+isTileValid gamemap (x,y)
+  | isMine
+ ((gamemap !! y) !! x) = True
+  | otherwise = do
+    let amine = readInt ((gamemap !! y) !! x)
+    let amine1 = amine - (fromEnum (isTileBomb gamemap (x-1, y-1)))
+    let amine2 = amine1 - (fromEnum (isTileBomb gamemap (x-1, y)))
+    let amine3 = amine2 - (fromEnum (isTileBomb gamemap (x-1, y+1)))
+    let amine4 = amine3 - (fromEnum (isTileBomb gamemap (x, y-1)))
+    let amine5 = amine4 - (fromEnum (isTileBomb gamemap (x, y+1)))
+    let amine6 = amine5 - (fromEnum (isTileBomb gamemap (x+1, y-1)))
+    let amine7 = amine6 - (fromEnum (isTileBomb gamemap (x+1, y)))
+    let amine8 = amine7 - (fromEnum (isTileBomb gamemap (x+1, y+1)))
+
+    amine8 == 0
+
+isTileBomb :: [[String]] -> (Int, Int) -> Bool
+isTileBomb gamemap (x,y)
+  | y < 0 || x < 0 || y >= length gamemap || x >= length (gamemap !! 0) = False
+  | otherwise = isMine
+ ((gamemap !! y) !! x)
+
+-- Check if game is complete (won)
 isMapComplete :: [[String]] -> [[Mapstate]] -> Bool
 isMapComplete gamemap mask = _x_isMapComplete gamemap (gamemap, mask, 0)
 
@@ -189,9 +187,39 @@ _y_isMapComplete :: [String] -> ([[String]], [[Mapstate]], Int, Int) -> Bool
 _y_isMapComplete [x] (gamemap,mask,i,j) = (isTileComplete gamemap mask (i, j))
 _y_isMapComplete (x:xs) (gamemap,mask,i,j) = (isTileComplete gamemap mask (i, j)) && (_y_isMapComplete xs (gamemap, mask, i, j+1))
 
+isTileComplete :: [[String]] -> [[Mapstate]] -> (Int,Int) -> Bool
+isTileComplete gamemap mask (x,y)
+  | y < 0 || x < 0 || y >= length gamemap || x >= length (gamemap !! 0) = True
+  | isMine
+ ((gamemap !! y) !! x) = True
+  | otherwise = ((mask !! y) !! x) == Revealed
+
 
 --- Helper functions
+-- Checks if input is mine
+isMine :: String -> Bool
+isMine "M" = True
+isMine _ = False
+
+-- Counts mines present in game map 
+countMines :: [[String]] -> Int
+countMines [] = 0
+countMines [x] = _countMines x
+countMines (x:xs) = _countMines x + countMines xs
+
+_countMines :: [String] -> Int
+_countMines [] = 0
+_countMines [x] = fromEnum (isMine x)
+_countMines (x:xs) = fromEnum (isMine x) + _countMines xs
+
 -- Print list to console
+printLists :: [[String]] -> IO ()
+printLists [] = return ()
+printLists [x] = printList x
+printLists (x:xs) = do 
+  printList x 
+  printLists xs
+
 printList :: [String] -> IO ()
 printList [] = return ()
 printList [x] = putStrLn x
@@ -200,13 +228,6 @@ printList (x:xs) = do
   if (length x) == 1 then do putStr "  "
   else do putStr " "
   printList xs
-
-printLists :: [[String]] -> IO ()
-printLists [] = return ()
-printLists [x] = printList x
-printLists (x:xs) = do 
-  printList x 
-  printLists xs
 
 -- Print list with indexing
 indexedPrintLists :: [[String]] -> IO ()
@@ -234,7 +255,7 @@ indexedprintList (x:xs) i = do
   else do putStr " | "
   printList (x:xs)
 
-
+-- Parse string to int
 readInt :: String -> Int
 readInt = read
 
@@ -267,7 +288,6 @@ _maskMap :: [String] -> [Mapstate]
 _maskMap [x] = [Hidden]
 _maskMap (x:xs) = [Hidden] ++ (_maskMap xs)
 
-
 -- Replaces value of element at given index
 replace [[]] _ = [[]]
 replace (x:xs) (0,m,a) = (_replace x (m,a)):xs
@@ -276,7 +296,6 @@ replace (x:xs) (n,m,a) =
     then (x:xs)
     else x: replace xs (n-1,m,a)
 
-
 _replace [] _ = []
 _replace (_:xs) (0,a) = a:xs
 _replace (x:xs) (n,a) =
@@ -284,14 +303,5 @@ _replace (x:xs) (n,a) =
     then (x:xs)
     else x: _replace xs (n-1,a)
 
-countMines :: [[String]] -> Int
-countMines [] = 0
-countMines [x] = _countMines x
-countMines (x:xs) = _countMines x + countMines xs
-
-_countMines :: [String] -> Int
-_countMines [] = 0
-_countMines [x] = fromEnum (isBomb x)
-_countMines (x:xs) = fromEnum (isBomb x) + _countMines xs
-
+-- Gets first element of tuple
 getFirst (x, _, _) = x
