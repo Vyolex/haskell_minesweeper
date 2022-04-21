@@ -34,6 +34,6 @@ def store_map(mmap:np.array, filename:str):
         print("\n".join([" ".join(["M" if i == -1 else str(i) for i in line]) for line in mmap]), end="", file=outf)
 
 if __name__ == "__main__":
-    for i in range(1):
-        mmap = generate(8, 8, 8)
+    for i in range(5):
+        mmap = generate(16, 16, 40)
         store_map(mmap, f"map{i}")
